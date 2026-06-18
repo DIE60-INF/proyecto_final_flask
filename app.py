@@ -271,5 +271,59 @@ def eliminar_tipo_diagnostico(id):
         
     return redirect(url_for('lista_tipos_diagnostico'))
 
+#----consultas----
+# --- CONSULTA 1: PACIENTES ACTUALMENTE INTERNADOS ---
+# --- CONSULTA 1: PACIENTES ACTUALMENTE INTERNADOS (SIN CONTADOR DE DÍAS) ---
+@app.route('/consulta-internados')
+def consulta_internados():
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    # Buscamos únicamente hospitalizaciones activas (fecha_alta es NULL)
+    query = """
+        SELECT h.id, p.nombre AS nombre_paciente, p.apellido AS apellido_paciente, 
+        s.nombre AS nombre_sala, h.fecha_ingreso
+        FROM hospitalizacion h
+        INNER JOIN paciente p ON h.paciente_id = p.id
+        INNER JOIN sala s ON h.sala_id = s.id
+        WHERE h.fecha_alta IS NULL
+        ORDER BY h.fecha_ingreso ASC
+    """
+    cursor.execute(query)
+    internados = cursor.fetchall()
+    cursor.close()
+    return render_template('consulta_internados.html', pacientes=internados)
+
+
+# --- CONSULTA 2: PACIENTES FILTRADOS POR DIAGNÓSTICO ---
+@app.route('/consulta-por-diagnostico', methods=['GET', 'POST'])
+def consulta_por_diagnostico():
+    cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    
+    # Siempre traemos la lista de diagnósticos para llenar el select del filtro
+    cursor.execute("SELECT id, nombre FROM tipo_diagnostico")
+    diagnosticos = cursor.fetchall()
+    
+    id_seleccionado = request.form.get('tipo_diagnostico_id') if request.method == 'POST' else None
+    pacientes_filtrados = []
+    
+    if id_seleccionado:
+        # Traemos los pacientes que tengan asignado ese diagnóstico y mostramos su ingreso activo o el último historial
+        query = """
+            SELECT p.nombre AS nombre_paciente, p.apellido AS apellido_paciente,
+            h.fecha_ingreso, s.nombre AS nombre_sala, h.fecha_alta
+            FROM paciente p
+            INNER JOIN hospitalizacion h ON p.id = h.paciente_id
+            INNER JOIN sala s ON h.sala_id = s.id
+            WHERE p.tipo_diagnostico_id = %s
+            ORDER BY h.fecha_ingreso DESC
+        """
+        cursor.execute(query, (id_seleccionado,))
+        pacientes_filtrados = cursor.fetchall()
+        
+    cursor.close()
+    return render_template('consulta_diagnostico.html', 
+        diagnosticos=diagnosticos, 
+        pacientes=pacientes_filtrados, 
+        id_seleccionado=int(id_seleccionado) if id_seleccionado else None)
+
 if __name__ == '__main__':
     app.run(debug=True)
